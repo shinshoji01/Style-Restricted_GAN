@@ -41,6 +41,12 @@ def min_max(x, axis=None, mean0=False, get_param=False):
         return result, min, max
     return result
 
+def standardize_torch(x):
+    xmean = torch.mean(x, dim=(1,2,3), keepdim=True)
+    xstd = torch.std(x, dim=(1,2,3), keepdim=True)
+    new_x = (x-xmean)/xstd
+    return new_x 
+
 def image_from_output(output):
     image_list = []
     output = output.detach().to("cpu").numpy()
@@ -216,6 +222,121 @@ def get_output_and_plot(sg, dataset, index, class_info, random_sample_num=5, sty
         
     return fig
 
+def dic_init(get_edge=False):
+    data = {}
+    data["source"] = []
+    data["target"] = []
+    data["recon"] = []
+    label = {}
+    label["source"] = []
+    label["target"] = []
+    return data, label
+
+def get_samples(netG, netE, dataset, index, latent=None, classes=tuple(range(4)), ref_label=None, 
+                       ndim=8, scale=1, image_type="pil", batch=32, device="cuda", conventional_E=False):
+    """
+    get samples of the outputs in multimodal-SingleGAN, which is diversified the output with the latent code
+    
+    Parameters
+    ------------
+    netG : PyTorch model
+        the generator of the SingleGAN
+        
+    dataset : Dataset in PyTorch
+        dataset which is used in the inference task
+        
+    index : int
+        the index which indicates data location in the dataset
+        
+    target_label : ndarray
+        the index which indicates data location in the dataset
+        
+    latent : None or ndarray, shape=(sample_num, latent_dim)
+        latent indicates the "style" of generated data
+        
+    classes : tuple
+        the class list(tuple)
+        
+    ref_label : ndarray
+        continuous class label (relational label or moving label)
+        
+    label_type : 'target_only', 'concatenation', or 'substruction'
+        the target label for transformation
+        'target_only' -> only target label
+        'concatenation' -> concatenation of the target label and the source label
+        'substruction' -> substruction of the target label and the source label
+        
+    transformation_type : 'normal', 'edge', or 'edge_emphasis'
+        the represenation which is used for the input of the E
+        
+    ndim : int 
+        the dimension of the latent code
+    
+    Returns
+    ----------
+    data : dic
+        dictionary of whole data
+        
+    label : dic
+        dictionary of whole label
+        
+    """
+    
+    fixed_source_image = dataset[index][0].view(1, 3, 128, 128).to(device)
+    fixed_source_label = torch.tensor([dataset[index][1]])
+    
+    data, label = dic_init(False)
+    label["source"] = cuda2numpy(fixed_source_label)
+    if image_type=="pil":
+        data["source"] = image_from_output(fixed_source_image)[0]
+    elif image_type=="tensor":
+        data["source"] = cuda2cpu(fixed_source_image)[0]
+
+    netG.eval()
+    netE.eval()
+    if type(latent)==list:
+        latent_list = []
+        for v in latent:
+            latent_list.append(torch.tensor(v, dtype=torch.float32).to(device))
+    else:
+        latent = torch.tensor(latent, dtype=torch.float32).to(device)
+        latent_list = [latent]*len(classes)
+        
+    num = latent_list[0].shape[0]
+    label["latent"] = {}
+    data["target"] = {}
+    for target_label in classes:
+        label["latent"][target_label] = []
+        data["target"][target_label] = []
+        for itr in range(num//batch+int(bool(num-batch*(num//batch)))):
+            target_label = torch.tensor([target_label])
+            class_vector = class_encode(target_label, device, ref_label)
+            latent_ = latent_list[target_label][itr*batch:(itr+1)*batch, :]
+            class_vector = torch.cat([class_vector.repeat(latent_.shape[0],1), latent_], 1)
+            target_image = netG(fixed_source_image.repeat(latent_.shape[0],1,1,1), class_vector)
+            if conventional_E:
+                class_vector = class_encode(target_label, device, ref_label)
+                _, mu, _ = netE(target_image, class_vector.repeat(latent_.shape[0],1))
+            else:
+                _, mu, _, _, _ = netE(target_image)
+            target_label = target_label.numpy()[0]
+            label["latent"][target_label].append(cuda2numpy(mu))
+            if image_type=="pil":
+                data["target"][target_label] += image_from_output(target_image)
+            elif image_type=="tensor":
+                target_image = cuda2numpy(target_image)
+                if itr == 0:
+                    data["target"][target_label] = target_image
+                else:
+                    data["target"][target_label] = np.concatenate([data["target"][target_label], target_image], axis=0)
+                    
+        if image_type=="tensor":
+            data["target"][target_label] = torch.Tensor(np.array(data["target"][target_label]))
+            
+    if image_type=="tensor":
+        data["source"] = torch.Tensor(data["source"]).unsqueeze(0)
+    return data, label
+
 
 ##################################### Loss ###########################################
 
@@ -295,13 +416,13 @@ def gradient_penalty_loss(y, x, device):
     dydx_l2norm = torch.sqrt(torch.sum(dydx**2, dim=1))
     return torch.mean((dydx_l2norm-1)**2)
 
-def get_gradient_penalty(netD, real_image, target_image):
+def get_gradient_penalty(netD, real_image, target_image, device):
     alpha = torch.rand(real_image.size(0), 1, 1, 1).to(device)
     x_hat = (alpha * real_image + (1-alpha) * target_image).requires_grad_(True)
     outputs, _ = netD(x_hat)
     loss = 0.0
     for output in outputs:
-        loss += gradient_penalty_loss(output, x_hat)
+        loss += gradient_penalty_loss(output, x_hat, device)
     return loss / len(outputs)
 
 ## https://discuss.pytorch.org/t/differentiable-torch-histc/25865/3 ##
@@ -349,11 +470,22 @@ class ToPIL(object):
     def __repr__(self):
         return self.__class__.__name__
     
+class MinMax(object):
+    def __init__(self, mean0=True):
+        self.mean0 = mean0
+        pass
+    def __call__(self, img):
+        return torch.Tensor(min_max(cuda2numpy(img), mean0=self.mean0))
+    def __repr__(self):
+        return self.__class__.__name__
+
+    
 augment = transforms.Compose([
     ToPIL(),
     transforms.RandomAffine(degrees=0, translate=(0.15,0.05)),
     transforms.RandomHorizontalFlip(p=0.5),
     transforms.ToTensor(),
+    MinMax(True),
 ])
 
 def get_augmented_image(data, transform):

@@ -534,11 +534,18 @@ class GetAttention_relu(nn.Module):
         return output
     
 class Encoder_gradattention(nn.Module):
-    def __init__(self, nch_in, nch_out, nch=64, num_cls=3, norm_type="instance", num_con=2, attention_mode="relu"):
+    def __init__(self, nch_in, nch_out, nch=64, num_cls=3, norm_type="instance", num_con=2, attention_mode="relu", classes=tuple(range(4)), criterion_class=nn.MSELoss(), device="cuda", ref_label=None):
         super(Encoder_gradattention, self).__init__()
         norm_layer, c_norm_layer = get_norm_layer(layer_type=norm_type, num_con=num_con)
         self.num_cls = num_cls
+        self.classes = classes
         self.attention_mode = attention_mode
+        self.criterion_class = criterion_class
+        self.device = device
+        if type(ref_label)==np.ndarray:
+            self.ref_label = ref_label
+        else:
+            self.ref_label = np.eye(len(classes))
         if self.attention_mode=="relumodified":
             self.get_attention = GetAttention_relu(True)
         elif self.attention_mode=="relu":
@@ -579,9 +586,9 @@ class Encoder_gradattention(nn.Module):
         feature = self.last_layer[0](self.layers(self.first_layer(x)))
         output_class = self.fcclass(self.last_layer[1](feature).view(feature.size(0),-1))
         
-        for i in range(len(classes)):
-            label = torch.tensor(np.reshape(np.arange(len(classes)), (1, len(classes)))).repeat(x.shape[0], 1)[:,i:i+1]
-            loss = criterion_class(output_class, class_encode(label, device, ref_label, "target_only"))
+        for i in range(len(self.classes)):
+            label = torch.tensor(np.reshape(np.arange(len(self.classes)), (1, len(self.classes)))).repeat(x.shape[0], 1)[:,i:i+1]
+            loss = self.criterion_class(output_class, class_encode(label, self.device, self.ref_label, "target_only"))
             grads = torch.autograd.grad(loss, feature, retain_graph=True)
             _, _, H, W = grads[0].shape
             w = grads[0].mean(-1).mean(-1).view(x.shape[0], 1024, 1, 1).expand(x.shape[0], 1024, H, W)
