@@ -1,20 +1,18 @@
 import warnings
 warnings.filterwarnings("ignore")
-import glob
 import torch
-import time
 import torch.nn as nn
-import torch.optim as optim
 import torch.nn.functional as F
-import torchvision
 import numpy as np
 import matplotlib.pyplot as plt
 import torch.utils.data
 import torchvision.transforms as transforms
-from torch.autograd import Variable
 from PIL import Image
-import itertools
+import torchvision.models as models
 import pickle
+import torch.optim as optim
+
+from prdc import compute_prdc
 
 def cuda2numpy(x):
     return x.detach().to("cpu").numpy()
@@ -124,6 +122,223 @@ def get_random_dataset(dataset, num, random=True, random_seed=0):
         else:
             data_list = torch.cat([data_list, data], dim=0)
     return data_list
+
+class SRGAN_training():
+    def __init__(self, net, opt, criterion, lbd, unrolled_k, device, ref_label,
+                 batch_size=64, encoded_feature="latent", styleINdataset=True, ndim=8):
+        self.G, self.D, self.E = net[0].to(device), net[1].to(device), net[2].to(device)
+        self.optG, self.optD, self.optE = opt[0], opt[1], opt[2]
+        self.scheG, self.scheD, self.scheE = None, None, None
+        self.criterion, self.criterion_class = criterion
+        self.lbd = lbd
+        self.k = unrolled_k
+        self.device = device
+        self.ref_label = ref_label
+        self.n_batch = batch_size
+        self.encoded_feature = encoded_feature
+        self.styleINdataset = styleINdataset
+        self.ndim = ndim
+        self.source_image = None
+        self.target_image = None
+        self.recon_image = None
+        self.label = None
+        self.c_rand = None
+        self.enc_info = None
+        self.target_cenc = None
+        if lbd["hist"]>0:
+            self.hi = histogram_imitation(device)
+    
+    def opt_sche_initialization(self, lr=[0.0001, 0.0001, 0.0001]):
+        lr_G, lr_D, lr_E = lr
+        if self.optG==None:
+            self.optG = optim.Adam(self.G.parameters(), lr=lr_G, betas=(0.5, 0.999))
+        self.scheG = optim.lr_scheduler.ExponentialLR(self.optG, gamma=0.95)
+        if self.optD==None:
+            self.optD = optim.Adam(self.D.parameters(), lr=lr_D, betas=(0.5, 0.999))
+        self.scheD = optim.lr_scheduler.ExponentialLR(self.optD, gamma=0.95)
+        if self.optE==None:
+            self.optE = optim.Adam(self.E.parameters(), lr=lr_E, betas=(0.5, 0.999))
+        self.scheE = optim.lr_scheduler.ExponentialLR(self.optE, gamma=0.95)
+        return
+        
+    def G_transformation(self, target_label, source_image, encoder=False, ref_image=None):
+        if encoder:
+            latent, mu, logvar, class_output, attention = self.E(ref_image)
+            info = [latent, mu, logvar, class_output, attention]
+            if self.encoded_feature == "latent":
+                latent_vector = latent
+            elif self.encoded_feature == "mu":
+                latent_vector = mu
+                
+        else:
+            latent_vector = torch.randn(source_image.shape[0], self.ndim).to(self.device)
+            info = latent_vector
+            
+        class_vector = class_encode(target_label, self.device, self.ref_label)
+        class_vector = torch.cat([class_vector, latent_vector], 1)
+        target_image = self.G(source_image, class_vector)
+        
+        return target_image, info
+        
+    def update_D(self):
+        self.D.zero_grad()
+        if self.styleINdataset:
+            c, random = self.label["index"]
+            self.target_image, [_,self.c_rand,_,_,_] = self.G_transformation(self.label["target"], self.source_image, True, self.source_image[c][random])
+        else:
+            self.target_image, self.c_rand = self.G_transformation(self.label["target"], self.source_image, False)
+        
+        errD = 0
+        # real image
+        output, output_class = self.D(self.source_image)
+        errD_real = get_loss_D(output, 1., self.criterion, self.device)
+        errD_class = get_domainloss_D(output_class, class_encode(self.label["source"], self.device, self.ref_label), self.criterion_class)
+        errD += errD_real + errD_class*self.lbd["class"]
+
+        # fake image
+        output, output_class = self.D(self.target_image.detach())
+        errD_fake = get_loss_D(output, 0., self.criterion, self.device)
+        errD += errD_fake
+
+        # gradient penalty
+        if self.lbd["gp"] > 0:
+            errD_gp = get_gradient_penalty(self.D, self.source_image, self.target_image.detach())
+            errD += errD_gp * self.lbd["gp"]
+            
+        errD.backward()
+        self.optD.step()
+        return errD
+    
+    def update_GandE(self):
+        self.G.zero_grad()
+        self.E.zero_grad()
+
+        errG = 0
+        errE = 0
+        errE_output = 0
+
+        ## ordinary SingleGAN loss
+        recon_image, source_enc_info = self.G_transformation(self.label["source"], self.target_image, True, self.source_image)
+        output, output_class = self.D(self.target_image)
+        errG_dis = get_loss_D(output, 1., self.criterion, self.device)
+        errG_class = get_domainloss_D(output_class, class_encode(self.label["target"], self.device, self.ref_label), self.criterion_class)
+        errG_cycle = torch.mean(torch.abs(self.source_image - recon_image))
+        errG += errG_dis + errG_class*self.lbd["class"] + errG_cycle*self.lbd["cycle"]
+        errE_output += errG_cycle * self.lbd["cycle"]
+        
+        ## multimodal transformation (KL): Conventional KL
+        if self.lbd["KL"] > 0:
+            _, mu, logvar, _, _ = source_enc_info
+            errE_KL = -0.5 * torch.sum(1 + logvar - mu**2 - logvar.exp_()) 
+            errE += errE_KL*self.lbd["KL"]
+            errE_output += errE_KL*self.lbd["KL"]
+            
+        ## Identity loss under source style condition
+        if self.lbd["idt"] > 0:
+            identity_image, _ = self.G_transformation(self.label["source"], self.source_image, True, self.source_image)
+            errG_idt = torch.mean(torch.abs(self.source_image - identity_image))
+            errG += errG_idt*self.lbd["idt"]
+            errE_output += errG_idt*self.lbd["idt"]
+            
+        ## encoder attention loss
+        if self.lbd["attention"] > 0:
+            _, _, _, _, attention = source_enc_info
+            errE_att = get_focus_loss(attention, lbd=1)
+            errE += errE_att*self.lbd["attention"]
+            errE_output += errE_att*self.lbd["attention"]
+        
+        ## encoder classification loss
+        if self.lbd["class_enc"] > 0:
+            _, _, _, output_class_enc, _ = source_enc_info
+            errE_class_enc = get_domainloss_D([output_class_enc], class_encode(self.label["source"], self.device, self.ref_label), self.criterion_class)
+            errE += errE_class_enc*self.lbd["class_enc"]
+            errE_output += errE_class_enc*self.lbd["class_enc"]
+            
+        ## batch size KL
+        if self.lbd["batch_KL"] > 0:
+            _, mu, _, _, _ = source_enc_info
+            var = torch.var(mu, dim=0)*self.n_batch/(self.n_batch-1)
+            mean = torch.mean(mu, dim=0)
+            errE_bKL = -0.5 * torch.sum(1 + torch.log(var) - mean**2 - var) 
+            errE += errE_bKL*self.lbd["batch_KL"]
+            errE_output += errE_bKL*self.lbd["batch_KL"]
+            
+        ## correlative loss
+            if self.lbd["corr_enc"] > 0:
+                errE_corr = corrcoef_loss(mu.T, self.device)
+                errE += errE_corr*self.lbd["corr_enc"]
+                errE_output += errE_corr*self.lbd["corr_enc"]
+                
+        ## histgram imitation loss
+            if self.lbd["hist"] > 0:
+                errE_hist = self.hi.loss(mu)
+                errE += errE_hist*self.lbd["hist"]
+                errE_output += errE_hist*self.lbd["hist"]
+                
+        ## Consistency Regularization
+        if self.lbd["consis_reg"] > 0:
+            augmented = get_augmented_image(self.source_image, augment)
+            _, augmented_mu, _, _, _ = self.E(augmented)
+            _, source_mu, _, _, _ = source_enc_info
+            
+            errE_consis_reg = torch.mean(torch.abs(augmented_mu - source_mu)*2)
+            errE += errE_consis_reg*self.lbd["consis_reg"]
+            errE_output += errE_consis_reg*self.lbd["consis_reg"]
+        
+        errG.backward(retain_graph=True)
+        errE.backward(retain_graph=True)
+        self.optG.step()
+        self.optE.step()
+        
+        ########################### update exclusively G ###########################
+        self.G.zero_grad()
+        self.E.zero_grad()
+        
+        errG_ex = 0
+        ## multimodal transformation (regression loss)
+        _, target_cenc, _, _, _ = self.E(self.target_image)
+        errG_reg = torch.mean(torch.abs(self.c_rand - target_cenc))
+        errG_ex += errG_reg * self.lbd["reg"]
+        
+        ## multimodal transformation (regression loss for identity images)
+        if self.lbd["idt_reg"]*self.lbd["idt"] > 0:
+            errG_idt_reg = 0
+            
+            ## random condition
+            idt_random_image, [_,source_c_rand,_,_,_] = self.G_transformation(self.label["source"], self.source_image, True, self.source_image)
+            _, idt_cenc_rand, _, _, _ = self.E(idt_random_image)
+            errG_idt_reg += torch.mean(torch.abs(source_c_rand - idt_cenc_rand))
+            errG_ex += errG_idt_reg * self.lbd["idt_reg"] * (self.lbd["idt"]/self.lbd["cycle"])
+            
+        errG_ex.backward()
+        self.optG.step()
+        
+        errG += errG_ex
+        
+        return [errG, errE_output]
+    
+    def UnrolledUpdate(self):
+        for i in range(self.k):
+
+            # update D
+            errD = self.update_D()
+            if i==0:
+                paramD = self.D.state_dict()
+                errorD = errD
+
+        # update G
+        errorG, errorE = self.update_GandE()
+
+        self.D.load_state_dict(paramD)
+        return [errorG, errorD, errorE]
+        
+    def train(self, source_image, label):
+        self.source_image = source_image
+        self.label = label
+        error = self.UnrolledUpdate()
+        return error
+
+
 
 def get_output_and_plot(sg, dataset, index, class_info, random_sample_num=5, styleINdataset=False, device="cuda"):
     classes, label_discription = class_info
@@ -336,6 +551,120 @@ def get_samples(netG, netE, dataset, index, latent=None, classes=tuple(range(4))
     if image_type=="tensor":
         data["source"] = torch.Tensor(data["source"]).unsqueeze(0)
     return data, label
+
+############################### Evaluation Method ######################################
+
+class vgg_model():
+    def __init__(self, model):
+        layers = []
+        layers += list(model.features.children())
+        layers += list(model.avgpool.children())
+        self.feature_extractor = nn.Sequential(*layers)
+        layers = []
+        layers += list(model.classifier.children())[:6]
+        self.fcs = nn.Sequential(*layers)
+        self.model = model
+        
+    def get(self, x, output_type="score"):
+        if output_type=="feature":
+            with torch.no_grad():
+                x = self.feature_extractor(x)
+                x = torch.flatten(x, 1)
+                x = self.fcs(x)
+                out = x
+
+        elif output_type =="score":
+            with torch.no_grad():
+                output = self.model(x)
+                out = output
+        return out
+
+class GAN_evaluation():
+    def __init__(self, feature_extractor="vgg-initialization", device="cpu", 
+                 classes=tuple(range(4)), reference=tuple(range(4))):
+        self.fe = feature_extractor
+        
+        if "vgg" in self.fe and "ImageNet" in self.fe:
+            model = models.vgg19_bn(pretrained=True).to(device)
+            model.eval()
+            self.model = vgg_model(model)
+            
+        elif "vgg" in self.fe and "initialization" in self.fe:
+            model = models.vgg19_bn(pretrained=False).to(device)
+            model.apply(weights_init)
+            model.eval()
+            self.model = vgg_model(model)
+            
+        elif "vgg" in self.fe and "CelebA" in self.fe:
+            model = models.vgg19_bn(pretrained=False).to(device)
+            model.classifier[6] = nn.Linear(in_features=4096, out_features=len(classes))
+            
+            model_path = f"../data/parameters/B/facial_recognizer_vgg_lr5e-05_epoch126.pth"
+            model_ = torch.load(model_path) 
+            model.load_state_dict(model_)
+            model.eval()
+            model = model.to(device)
+            self.model = vgg_model(model)
+            
+        self.transform = transforms.Compose([
+            transforms.Resize((128, 128)),
+            transforms.Resize((224, 224)),
+            transforms.ToTensor(),
+            transforms.Normalize(mean=(0.485, 0.456, 0.406), std=(0.229, 0.224, 0.225)),
+        ])
+        
+        self.device = device
+        
+    def preprocess(self, tensor):
+        images = []
+        for i in range(tensor.shape[0]):
+            t = tensor[i:i+1,:,:,:]
+            image = image_from_output(t)[0]
+            image = self.transform(image).numpy()
+            images.append(image)
+        images = torch.Tensor(np.array(images))
+            
+        return images
+    
+    def get_feature(self, tensor, batch=32, get_attention=False, thres=0.5):
+        num = tensor.shape[0]
+        for itr in range(num//batch+int(bool(num-batch*(num//batch)))):
+            data = tensor[itr*batch:(itr+1)*batch]
+            data = data.to(self.device)
+            feature = cuda2numpy(self.model.get(data, "feature").reshape(data.shape[0], -1))
+                    
+            if itr==0:
+                features = feature
+            else:
+                features = np.concatenate([features, feature], axis=0)
+        return features
+    
+    def get_prdc(self, true, pred, nearest_k=5, preprocess=True, thres=0.5, batch=32):
+        self.run_preprocess = preprocess
+        if preprocess:
+            true = self.preprocess(true)
+            pred = self.preprocess(pred)
+        f1 = self.get_feature(true)
+        f2 = self.get_feature(pred)
+        if f1.shape[1]==0:
+            return {"precision": None,  "recall": None,  "density": None,  "coverage": None,  }
+        metrics = compute_prdc(real_features=f1,
+                               fake_features=f2,
+                               nearest_k=nearest_k)
+        return metrics
+    
+def evaluation_init(fe_list, classes, metrics):
+    GAN_eval = {}
+    for fe in fe_list:
+        GAN_eval[fe] = {}
+        for source_label in classes:
+            GAN_eval[fe][source_label] = {}
+            for target_label in classes:
+                GAN_eval[fe][source_label][target_label] = {}
+                GAN_eval[fe][source_label][target_label] = {}
+                for metric in metrics.keys():
+                    GAN_eval[fe][source_label][target_label][metric] = []
+    return GAN_eval
 
 
 ##################################### Loss ###########################################
