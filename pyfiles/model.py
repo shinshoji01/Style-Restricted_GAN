@@ -1,23 +1,11 @@
-import warnings
-warnings.filterwarnings("ignore")
-import glob
 import torch
-import time
 import torch.nn as nn
-import torch.optim as optim
 import torch.nn.functional as F
-import torchvision
 import numpy as np
-import matplotlib.pyplot as plt
-import torch.utils.data
-import torchvision.transforms as transforms
 from torch.autograd import Variable
-from PIL import Image
-import itertools
 from torch.nn.modules.module import Module
 from torch.nn.parameter import Parameter
 import functools
-import pickle
     
 from util import *
     
@@ -465,7 +453,6 @@ class Encoder(nn.Module):
         self.fcmean = nn.Linear(out_nch, nch_out)
         self.fcvar = nn.Linear(out_nch, nch_out)
         self.fcclass = nn.Linear(out_nch, num_con)
-        self.fcclass_reduced = nn.Linear(out_nch, num_con)
  
     def reparametrize(self, mu, logvar):
         std = logvar.mul(0.5).exp_()
@@ -488,133 +475,9 @@ class Encoder(nn.Module):
         mu = self.fcmean(self.last_layer[1](x_conv).view(feature.size(0),-1))
         logvar = self.fcvar(self.last_layer[1](x_conv).view(feature.size(0),-1))
         c_code = self.reparametrize(mu, logvar)
+        class_output = self.fcclass(self.last_layer[1](x_conv).view(feature.size(0),-1))
         
-        return c_code, mu, logvar, None, None
-    
-class Positive(torch.autograd.Function):
-    def __init__(self):
-        super(Positive, self).__init__()
-        
-    def forward(ctx, input):
-        min_ = float(input[input>0].min())
-        ctx.save_for_backward(input)
-        return input.clamp(min=0, max=min_)/min_
-    
-    def backward(ctx, dL_dy):
-        input, = ctx.saved_variables
-        dL_dx = dL_dy.clone()
-        dL_dx[input<0] = 0
-        return dL_dx
-    
-class ReLUmodified(torch.autograd.Function):
-    def __init__(self):
-        super(ReLUmodified, self).__init__()
-        
-    def forward(ctx, input, a, reference):
-        reference = Positive()(reference-a)
-        ctx.save_for_backward(input, a, reference)
-        return torch.mul(input, reference)
-    
-    def backward(ctx, dL_dy):
-        input, a, reference = ctx.saved_variables
-        dL_dx = dL_dy.clone()
-        dL_da = dL_dy.clone()
-        
-        dL_dx[reference==0] = 0
-        dL_da[reference==0] = 0
-        return dL_dx, -dL_da, torch.zeros(reference.shape, device=reference.device)
-    
-class GetAttention_relu(nn.Module):
-    def __init__(self, requires_grad=False):
-        super(GetAttention_relu, self).__init__()
-        self.a = nn.Parameter(torch.Tensor([0.]), requires_grad=requires_grad)
-        
-    def forward(self, input, reference):
-        output = ReLUmodified()(input, self.a, reference)
-        return output
-    
-class Encoder_gradattention(nn.Module):
-    def __init__(self, nch_in, nch_out, nch=64, num_cls=3, norm_type="instance", num_con=2, attention_mode="relu", classes=tuple(range(4)), criterion_class=nn.MSELoss(), device="cuda", ref_label=None):
-        super(Encoder_gradattention, self).__init__()
-        norm_layer, c_norm_layer = get_norm_layer(layer_type=norm_type, num_con=num_con)
-        self.num_cls = num_cls
-        self.classes = classes
-        self.attention_mode = attention_mode
-        self.criterion_class = criterion_class
-        self.device = device
-        if type(ref_label)==np.ndarray:
-            self.ref_label = ref_label
-        else:
-            self.ref_label = np.eye(len(classes))
-        if self.attention_mode=="relumodified":
-            self.get_attention = GetAttention_relu(True)
-        elif self.attention_mode=="relu":
-            self.get_attention = GetAttention_relu(False)
-        self.first_layer = nn.Conv2d(nch_in*1, nch, kernel_size=7, stride=2, padding=1, bias=True)
-        
-        cnn_layers = []
-        in_nch = nch
-        for i in range(num_cls):
-            out_nch = in_nch * 2
-            cnn_layers.append(BasicBlock_classification(in_nch, out_nch, norm_layer))
-            in_nch = out_nch
-        self.layers = nn.Sequential(*cnn_layers)
-        self.last_layer = nn.Sequential(nn.LeakyReLU(0.2), nn.AdaptiveAvgPool2d(1))
-        self.fcmean = nn.Sequential(nn.Linear(out_nch, int(out_nch/2)),
-                                    nn.Linear(int(out_nch/2), nch_out))
-        self.fcvar = nn.Sequential(nn.Linear(out_nch, int(out_nch/2)),
-                                    nn.Linear(int(out_nch/2), nch_out))
-        self.fcclass = nn.Linear(out_nch, num_con)
-        self.fcclass_reduced = nn.Linear(out_nch, num_con)
- 
-    def reparametrize(self, mu, logvar):
-        std = logvar.mul(0.5).exp_()
-        eps = torch.cuda.FloatTensor(std.size()).normal_()
-        eps = Variable(eps)
-        return eps.mul(std).add_(mu)
-    
-    def freeze_melt(self, classifier_layers, mode="freeze"):
-        netE_layers = list(self.state_dict().keys())
-        for i, param in enumerate(self.parameters()):
-            if netE_layers[i] in classifier_layers:
-                if mode=="freeze":
-                    param.requires_grad = False
-                elif mode=="melt":
-                    param.requires_grad = True
-        
-    def forward(self, x):
-        feature = self.last_layer[0](self.layers(self.first_layer(x)))
-        output_class = self.fcclass(self.last_layer[1](feature).view(feature.size(0),-1))
-        
-        for i in range(len(self.classes)):
-            label = torch.tensor(np.reshape(np.arange(len(self.classes)), (1, len(self.classes)))).repeat(x.shape[0], 1)[:,i:i+1]
-            loss = self.criterion_class(output_class, class_encode(label, self.device, self.ref_label, "target_only"))
-            grads = torch.autograd.grad(loss, feature, retain_graph=True)
-            _, _, H, W = grads[0].shape
-            w = grads[0].mean(-1).mean(-1).view(x.shape[0], 1024, 1, 1).expand(x.shape[0], 1024, H, W)
-            a = feature
-            important_feature = torch.mul(a, w)
-
-            if i==0:
-                important_features = important_feature
-            else:
-                important_features = important_features + important_feature
-                
-        if self.attention_mode == "relu":
-            x_conv = self.get_attention(feature, important_features)
-            attention = Positive()(x_conv)
-        elif self.attention_mode == "relumodified":
-            x_conv = self.get_attention(feature, standardize_torch(important_features))
-            attention = Positive()(x_conv)
-        
-        mu = self.fcmean(self.last_layer[1](x_conv).view(feature.size(0),-1))
-        logvar = self.fcvar(self.last_layer[1](x_conv).view(feature.size(0),-1))
-        c_code = self.reparametrize(mu, logvar)
-        
-        output_class = self.fcclass_reduced(self.last_layer[1](x_conv).view(feature.size(0),-1))
-        output_class = nn.Softmax()(output_class)
-            
-        return c_code, mu, logvar, output_class, attention
+        return c_code, mu, logvar, class_output, None
     
 class Encoder_classifier(nn.Module):
     def __init__(self, nch_in, nch_out, nch=64, num_cls=3, norm_type="instance", num_con=2):

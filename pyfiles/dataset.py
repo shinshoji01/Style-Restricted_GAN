@@ -1,17 +1,7 @@
-import warnings
-warnings.filterwarnings("ignore")
 import glob
 import torch
-import time
-import torch.nn as nn
-import torch.optim as optim
-import torch.nn.functional as F
-import torchvision
 import numpy as np
-import matplotlib.pyplot as plt
 import torch.utils.data
-import torchvision.transforms as transforms
-from torch.autograd import Variable
 from PIL import Image
 import itertools
 import pickle
