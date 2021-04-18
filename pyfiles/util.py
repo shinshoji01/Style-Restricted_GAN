@@ -192,7 +192,7 @@ def corrcoef_loss(m, device):
 
 ## https://discuss.pytorch.org/t/differentiable-torch-histc/25865/3 ##
 class GaussianHistogram(nn.Module):
-    def __init__(self, bins, min, max, sigma, device):
+    def __init__(self, bins, min, max, sigma):
         super(GaussianHistogram, self).__init__()
         self.bins = bins
         self.min = min
@@ -212,7 +212,7 @@ class GaussianHistogram(nn.Module):
 class histogram_imitation():
     def __init__(self, device, bins=50, range_max=10, sigma=0.2, target_num=100000):
         self.device = device
-        self.gausshist = GaussianHistogram(bins=bins, min=-range_max, max=range_max, sigma=sigma, device=device)
+        self.gausshist = GaussianHistogram(bins=bins, min=-range_max, max=range_max, sigma=sigma)
         target = torch.randn(target_num,1)
         gausshist_value = self.gausshist(target[:,0])
         self.target = (gausshist_value / gausshist_value.sum() + 1e-8).to(device)
