@@ -56,7 +56,7 @@ class GAN_evaluation():
             model.classifier[6] = nn.Linear(in_features=4096, out_features=len(classes))
             
             model_path = f"../data/parameters/B/facial_recognizer_vgg_lr5e-05_epoch126.pth"
-            model_ = torch.load(model_path) 
+            model_ = torch.load(model_path, map_location=device) 
             model.load_state_dict(model_)
             model.eval()
             model = model.to(device)
