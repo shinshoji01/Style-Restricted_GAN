@@ -28,7 +28,7 @@ brew install git-lfs
 git lfs install
 git lfs fetch --all
 git lfs pull
-```k
+```
 
 ---
 ## Contact
