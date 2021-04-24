@@ -6,6 +6,7 @@
 ---
 ## Results
 ### Conventional KL Divergence Loss vs. Proposed Loss
+<img src="./../data/images/result_diversity_image.png" width="500">
 
 ### Style Restriction
 
