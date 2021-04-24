@@ -21,7 +21,30 @@ We would like to share our results first to briefly understand our objective. It
 
 ---
 ## Notebooks
-- 
+- `01-test_Conventional_SingleGAN.ipynb`
+  - examination of the conventional SingleGAN
+- `01-train_Conventional_SingleGAN.ipynb`
+  - training of the conventional SingleGAN
+- `02-test_SingleGAN_soloD.ipynb`
+  - examination of the SingleGAN with a solo discriminator
+- `02-train_SingleGAN_soloD.ipynb`
+  - training of the SingleGAN with a solo discriminator
+- `03-test_Style-Restricted_GAN_nopretraining.ipynb`
+  - examinaton of Style-Restricted GAN without pretraining
+- `03-train_Style-Restricted_GAN_nopretraining.ipynb`
+  - training of Style-Restricted GAN without pretraining
+- `04_Facial_Recognition-Encoder.ipynb`
+  - classification for SRGAN
+- `05-test_Style-Restricted_GAN.ipynb`
+  - examination of Style-Restricted GAN
+- `05-train_Style-Restricted_GAN.ipynb`
+  - training of Style-Restricted GAN
+- `06_Comparison_PRDC.ipynb`
+  - compare all the models
+- `A_CelebA_dataset_usage.ipynb`
+  - How to download and use CelebA dataset
+- `B_Facial_Recognition-VGG_Model.ipynb`
+  - classification for evaluation metrics
 
 ---
 ## Docker
