@@ -48,6 +48,23 @@ We would like to share our results first to briefly understand our objective. It
 
 ---
 ## Docker
+In this repository, we share the environment that you can run the notebooks.
+1. Build the docker environment.
+    - with GPU
+      - `docker build --no-cache -f Docker/Dockerfile.gpu .`
+    - without GPU
+      - `docker build --no-cache -f Docker/Dockerfile.cpu .`
+2. Check the <IMAGE ID> of the created image.
+    - `docker images`
+3. Run the docker environment
+    - with GPU
+      - `docker run --rm --gpus all -it -p 8080:8080 -e LOCAL_UID=$(id -u $USER) -e LOCAL_GID=$(id -g $USER) -v ~:/work <IMAGE ID> bash`
+    - without GPU
+      - `docker run --rm -it -p 8080:8080 -e LOCAL_UID=$(id -u $USER) -e LOCAL_GID=$(id -g $USER) -v ~:/work <IMAGE ID> bash`
+4. Run the jupyter lab
+    - `nohup jupyter lab --ip=0.0.0.0 --no-browser --allow-root --port 8080 --NotebookApp.token='' > nohup.out &`
+5. Open the jupyter lab
+    - Put http://localhost:8080/lab? to web browser.
 
 ---
 ## Installation of some apps
