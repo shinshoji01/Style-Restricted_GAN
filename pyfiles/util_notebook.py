@@ -479,11 +479,6 @@ class SRGAN_training():
         errD_fake = get_loss_D(output, 0., self.criterion, self.device)
         errD += errD_fake
 
-        # gradient penalty
-        if self.lbd["gp"] > 0:
-            errD_gp = get_gradient_penalty(self.D, self.source_image, self.target_image.detach())
-            errD += errD_gp * self.lbd["gp"]
-            
         errD.backward()
         self.optD.step()
         return errD
@@ -519,20 +514,6 @@ class SRGAN_training():
             errG += errG_idt*self.lbd["idt"]
             errE_output += errG_idt*self.lbd["idt"]
             
-        ## encoder attention loss
-        if self.lbd["attention"] > 0:
-            _, _, _, _, attention = source_enc_info
-            errE_att = get_focus_loss(attention, lbd=1)
-            errE += errE_att*self.lbd["attention"]
-            errE_output += errE_att*self.lbd["attention"]
-        
-        ## encoder classification loss
-        if self.lbd["class_enc"] > 0:
-            _, _, _, output_class_enc, _ = source_enc_info
-            errE_class_enc = get_domainloss_D([output_class_enc], class_encode(self.label["source"], self.device, self.ref_label), self.criterion_class)
-            errE += errE_class_enc*self.lbd["class_enc"]
-            errE_output += errE_class_enc*self.lbd["class_enc"]
-            
         ## batch size KL
         if self.lbd["batch_KL"] > 0:
             _, mu, _, _, _ = source_enc_info
@@ -554,16 +535,6 @@ class SRGAN_training():
                 errE += errE_hist*self.lbd["hist"]
                 errE_output += errE_hist*self.lbd["hist"]
                 
-        ## Consistency Regularization
-        if self.lbd["consis_reg"] > 0:
-            augmented = get_augmented_image(self.source_image, augment)
-            _, augmented_mu, _, _, _ = self.E(augmented)
-            _, source_mu, _, _, _ = source_enc_info
-            
-            errE_consis_reg = torch.mean(torch.abs(augmented_mu - source_mu)*2)
-            errE += errE_consis_reg*self.lbd["consis_reg"]
-            errE_output += errE_consis_reg*self.lbd["consis_reg"]
-        
         errG.backward(retain_graph=True)
         errE.backward(retain_graph=True)
         self.optG.step()
