@@ -4,11 +4,17 @@
 ## Introduction
 
 ---
+## Notebooks
+
+---
 ## Results
 ### Conventional KL Divergence Loss vs. Proposed Loss
-<img src="./../data/images/result_diversity_image.png" width="500">
+
+<img src="./data/images/result_diversity_image.png" width="800">
 
 ### Style Restriction
+
+<img src="./data/images/result_restriction_female.png" width="800">
 
 ---
 ## Docker
