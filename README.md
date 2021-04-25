@@ -54,7 +54,7 @@ In this repository, we share the environment that you can run the notebooks.
       - `docker build --no-cache -f Docker/Dockerfile.gpu .`
     - without GPU
       - `docker build --no-cache -f Docker/Dockerfile.cpu .`
-2. Check the <IMAGE ID> of the created image.
+2. Check the \<IMAGE ID\> of the created image.
     - `docker images`
 3. Run the docker environment
     - with GPU
