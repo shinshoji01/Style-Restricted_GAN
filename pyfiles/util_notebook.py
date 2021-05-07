@@ -25,203 +25,387 @@ def get_adjustable_parameters(notebook_no=1):
     
     return pd.DataFrame(np.array(models), columns=columns)
 
-class SingleGAN_training():
-    def __init__(self, net, criterion, lbd, unrolled_k, device, ref_label, n_batch, ndim, classes):
-        self.G, self.D, self.E = net[0], net[1], net[2]
-        self.optG, self.optD, self.optE = None, None, None
-        self.scheG, self.scheD, self.scheE = None, None, None
-        self.criterion = criterion
-        self.lbd = lbd
-        self.k = unrolled_k
-        self.device = device
-        self.ref_label = ref_label
-        self.n_batch = n_batch
-        self.ndim = ndim
-        self.classes = classes
-        self.source_image = None
-        self.target_image = None
-        self.label = None
-        self.c_rand = None
-        self.enc_info = None
-        self.target_cenc = None
-        if lbd["hist"]>0:
-            self.hi = histogram_imitation(device)
+# class SingleGAN_training():
+#     def __init__(self, net, criterion, lbd, unrolled_k, device, ref_label, n_batch, ndim, classes):
+#         self.G, self.D, self.E = net[0], net[1], net[2]
+#         self.optG, self.optD, self.optE = None, None, None
+#         self.scheG, self.scheD, self.scheE = None, None, None
+#         self.criterion = criterion
+#         self.lbd = lbd
+#         self.k = unrolled_k
+#         self.device = device
+#         self.ref_label = ref_label
+#         self.n_batch = n_batch
+#         self.ndim = ndim
+#         self.classes = classes
+#         self.source_image = None
+#         self.target_image = None
+#         self.label = None
+#         self.c_rand = None
+#         self.enc_info = None
+#         self.target_cenc = None
+#         if lbd["hist"]>0:
+#             self.hi = histogram_imitation(device)
     
-    def opt_sche_initialization(self, lr=[0.0001, 0.0001, 0.0001]):
-        lr_G, lr_D, lr_E = lr
-        self.optG = optim.Adam(self.G.parameters(), lr=lr_G, betas=(0.5, 0.999))
-        self.scheG = optim.lr_scheduler.ExponentialLR(self.optG, gamma=0.95)
-        self.optD = []
-        self.scheD = []
-        for i in self.classes:
-            self.optD.append(optim.Adam(self.D[i].parameters(), lr=lr_D, betas=(0.5, 0.999)))
-            self.scheD.append(optim.lr_scheduler.ExponentialLR(self.optD[i], gamma=0.95))
-        self.optE = optim.Adam(self.E.parameters(), lr=lr_E, betas=(0.5, 0.999))
-        self.scheE = optim.lr_scheduler.ExponentialLR(self.optE, gamma=0.95)
-        return
+#     def opt_sche_initialization(self, lr=[0.0001, 0.0001, 0.0001]):
+#         lr_G, lr_D, lr_E = lr
+#         self.optG = optim.Adam(self.G.parameters(), lr=lr_G, betas=(0.5, 0.999))
+#         self.scheG = optim.lr_scheduler.ExponentialLR(self.optG, gamma=0.95)
+#         self.optD = []
+#         self.scheD = []
+#         for i in self.classes:
+#             self.optD.append(optim.Adam(self.D[i].parameters(), lr=lr_D, betas=(0.5, 0.999)))
+#             self.scheD.append(optim.lr_scheduler.ExponentialLR(self.optD[i], gamma=0.95))
+#         self.optE = optim.Adam(self.E.parameters(), lr=lr_E, betas=(0.5, 0.999))
+#         self.scheE = optim.lr_scheduler.ExponentialLR(self.optE, gamma=0.95)
+#         return
         
-    def G_transformation(self, target_label, source_image, encoder=False, ref_image=None):
-        if encoder:
-            class_vector = class_encode(target_label, self.device, self.ref_label)
-            latent, mu, logvar = self.E(ref_image, class_vector)
-            info = [latent, mu, logvar]
-            latent_vector = latent
-        else:
-            latent_vector = torch.randn(source_image.shape[0], self.ndim).to(self.device)
-            info = latent_vector
+#     def G_transformation(self, target_label, source_image, encoder=False, ref_image=None):
+#         if encoder:
+#             class_vector = class_encode(target_label, self.device, self.ref_label)
+#             latent, mu, logvar = self.E(ref_image, class_vector)
+#             info = [latent, mu, logvar]
+#             latent_vector = latent
+#         else:
+#             latent_vector = torch.randn(source_image.shape[0], self.ndim).to(self.device)
+#             info = latent_vector
             
-        class_vector = class_encode(target_label, self.device, self.ref_label)
-        class_vector = torch.cat([class_vector, latent_vector], 1)
-        target_image = self.G(source_image, class_vector)
+#         class_vector = class_encode(target_label, self.device, self.ref_label)
+#         class_vector = torch.cat([class_vector, latent_vector], 1)
+#         target_image = self.G(source_image, class_vector)
         
-        return target_image, info
+#         return target_image, info
         
-    def update_D(self):
-        self.target_image, self.c_rand = self.G_transformation(self.label["target"], self.source_image, False)
+#     def update_D(self):
+#         self.target_image, self.c_rand = self.G_transformation(self.label["target"], self.source_image, False)
         
-        all_errD = 0
-        for i in self.classes:
-            self.D[i].zero_grad()
-            errD = 0
-            real_image = self.source_image[self.label["source"]==i]
-            if real_image.shape[0]!=0:
-                output = self.D[i](real_image)
-                errD_real = get_loss_D(output, 1., self.criterion, self.device)
-            else:
-                errD_real = 0
-            errD += errD_real
+#         all_errD = 0
+#         for i in self.classes:
+#             self.D[i].zero_grad()
+#             errD = 0
+#             real_image = self.source_image[self.label["source"]==i]
+#             if real_image.shape[0]!=0:
+#                 output = self.D[i](real_image)
+#                 errD_real = get_loss_D(output, 1., self.criterion, self.device)
+#             else:
+#                 errD_real = 0
+#             errD += errD_real
             
-            fake_image = self.target_image[self.label["target"]==i].detach()
-            if fake_image.shape[0]!=0:
-                output = self.D[i](fake_image)
-                errD_fake = get_loss_D(output, 0., self.criterion, self.device)
-            else:
-                errD_fake = 0
-            errD += errD_fake
-            errD.backward()
-            self.optD[i].step()
-            all_errD += errD/len(self.classes)
+#             fake_image = self.target_image[self.label["target"]==i].detach()
+#             if fake_image.shape[0]!=0:
+#                 output = self.D[i](fake_image)
+#                 errD_fake = get_loss_D(output, 0., self.criterion, self.device)
+#             else:
+#                 errD_fake = 0
+#             errD += errD_fake
+#             errD.backward()
+#             self.optD[i].step()
+#             all_errD += errD/len(self.classes)
             
-        return all_errD
+#         return all_errD
     
-    def update_GandE(self):
-        self.G.zero_grad()
-        self.E.zero_grad()
+#     def update_GandE(self):
+#         self.G.zero_grad()
+#         self.E.zero_grad()
 
-        errG = 0
-        errE = 0
-        errE_output = 0
+#         errG = 0
+#         errE = 0
+#         errE_output = 0
 
-        ## ordinary SingleGAN loss
-        recon_image, source_enc_info = self.G_transformation(self.label["source"], self.target_image, True, self.source_image)
-        for i in self.classes:
-            fake_image = self.target_image[self.label["target"]==i]
-            if fake_image.shape[0]!=0:
-                output = self.D[i](fake_image)
-                errG_dis = get_loss_D(output, 1., self.criterion, self.device)
-            else:
-                errG_dis = 0
-            errG += errG_dis/len(self.classes)
-        errG_cycle = torch.mean(torch.abs(self.source_image - recon_image))
-        errG += errG_cycle*self.lbd["cycle"]
-        errE_output += errG_cycle * self.lbd["cycle"]
+#         ## ordinary SingleGAN loss
+#         recon_image, source_enc_info = self.G_transformation(self.label["source"], self.target_image, True, self.source_image)
+#         for i in self.classes:
+#             fake_image = self.target_image[self.label["target"]==i]
+#             if fake_image.shape[0]!=0:
+#                 output = self.D[i](fake_image)
+#                 errG_dis = get_loss_D(output, 1., self.criterion, self.device)
+#             else:
+#                 errG_dis = 0
+#             errG += errG_dis/len(self.classes)
+#         errG_cycle = torch.mean(torch.abs(self.source_image - recon_image))
+#         errG += errG_cycle*self.lbd["cycle"]
+#         errE_output += errG_cycle * self.lbd["cycle"]
         
-        ## multimodal transformation (KL)
-        _, mu, logvar = source_enc_info
-        errE_KL = -0.5 * torch.sum(1 + logvar - mu**2 - logvar.exp_()) 
-        errE += errE_KL*self.lbd["KL"]
-        errE_output += errE_KL*self.lbd["KL"]
+#         ## multimodal transformation (KL)
+#         _, mu, logvar = source_enc_info
+#         errE_KL = -0.5 * torch.sum(1 + logvar - mu**2 - logvar.exp_()) 
+#         errE += errE_KL*self.lbd["KL"]
+#         errE_output += errE_KL*self.lbd["KL"]
         
-        ## Identity loss under source style condition
-        if self.lbd["idt"] > 0:
-            identity_image, _ = self.G_transformation(self.label["source"], self.source_image, True, self.source_image)
-            errG_idt = torch.mean(torch.abs(self.source_image - identity_image))
-            errG += errG_idt*self.lbd["idt"]
-            errE_output += errG_idt*self.lbd["idt"]
+#         ## Identity loss under source style condition
+#         if self.lbd["idt"] > 0:
+#             identity_image, _ = self.G_transformation(self.label["source"], self.source_image, True, self.source_image)
+#             errG_idt = torch.mean(torch.abs(self.source_image - identity_image))
+#             errG += errG_idt*self.lbd["idt"]
+#             errE_output += errG_idt*self.lbd["idt"]
             
-        ## batch size KL
-        if self.lbd["batch_KL"] > 0:
-            _, mu, _ = source_enc_info
-            var = torch.var(mu, dim=0)*self.n_batch/(self.n_batch-1)
-            mean = torch.mean(mu, dim=0)
-            errE_bKL = -0.5 * torch.sum(1 + torch.log(var) - mean**2 - var) 
-            errE += errE_bKL*self.lbd["batch_KL"]
-            errE_output += errE_bKL*self.lbd["batch_KL"]
+#         ## batch size KL
+#         if self.lbd["batch_KL"] > 0:
+#             _, mu, _ = source_enc_info
+#             var = torch.var(mu, dim=0)*self.n_batch/(self.n_batch-1)
+#             mean = torch.mean(mu, dim=0)
+#             errE_bKL = -0.5 * torch.sum(1 + torch.log(var) - mean**2 - var) 
+#             errE += errE_bKL*self.lbd["batch_KL"]
+#             errE_output += errE_bKL*self.lbd["batch_KL"]
             
-        ## correlative loss
-            if self.lbd["corr_enc"] > 0:
-                errE_corr = corrcoef_loss(mu.T, self.device)
-                errE += errE_corr*self.lbd["corr_enc"]
-                errE_output += errE_corr*self.lbd["corr_enc"]
+#         ## correlative loss
+#             if self.lbd["corr_enc"] > 0:
+#                 errE_corr = corrcoef_loss(mu.T, self.device)
+#                 errE += errE_corr*self.lbd["corr_enc"]
+#                 errE_output += errE_corr*self.lbd["corr_enc"]
                 
-        ## histgram imitation loss
-            if self.lbd["hist"] > 0:
-                errE_hist = self.hi.loss(mu)
-                errE += errE_hist*self.lbd["hist"]
-                errE_output += errE_hist*self.lbd["hist"]
+#         ## histgram imitation loss
+#             if self.lbd["hist"] > 0:
+#                 errE_hist = self.hi.loss(mu)
+#                 errE += errE_hist*self.lbd["hist"]
+#                 errE_output += errE_hist*self.lbd["hist"]
             
-        errG.backward(retain_graph=True)
-        errE.backward(retain_graph=True)
-        self.optG.step()
-        self.optE.step()
+#         errG.backward(retain_graph=True)
+#         errE.backward(retain_graph=True)
+#         self.optG.step()
+#         self.optE.step()
         
-        ## update exclusively G
-        self.G.zero_grad()
+#         ## update exclusively G
+#         self.G.zero_grad()
         
-        ## multimodal transformation (regression loss)
-        errG_ex = 0
+#         ## multimodal transformation (regression loss)
+#         errG_ex = 0
         
-        class_vector = class_encode(self.label["target"], self.device, self.ref_label)
-        _, target_cenc, _ = self.E(self.target_image, class_vector)
-        errG_reg = torch.mean(torch.abs(self.c_rand - target_cenc))
-        errG_ex += errG_reg * self.lbd["reg"]
+#         class_vector = class_encode(self.label["target"], self.device, self.ref_label)
+#         _, target_cenc, _ = self.E(self.target_image, class_vector)
+#         errG_reg = torch.mean(torch.abs(self.c_rand - target_cenc))
+#         errG_ex += errG_reg * self.lbd["reg"]
         
-        ## multimodal transformation (regression loss for identity images)
-        if self.lbd["idt_reg"]*self.lbd["idt"] > 0:
-            errG_idt_reg = 0
+#         ## multimodal transformation (regression loss for identity images)
+#         if self.lbd["idt_reg"]*self.lbd["idt"] > 0:
+#             errG_idt_reg = 0
             
-            ## random condition
-            idt_random_image, source_c_rand = self.G_transformation(self.label["source"], self.source_image, False)
-            class_vector = class_encode(self.label["source"], self.device, self.ref_label)
-            _, idt_cenc_rand, _ = self.E(idt_random_image, class_vector)
-            errG_idt_reg += torch.mean(torch.abs(source_c_rand - idt_cenc_rand))
-            errG_ex += errG_idt_reg * self.lbd["idt_reg"] * (self.lbd["idt"]/self.lbd["cycle"])
+#             ## random condition
+#             idt_random_image, source_c_rand = self.G_transformation(self.label["source"], self.source_image, False)
+#             class_vector = class_encode(self.label["source"], self.device, self.ref_label)
+#             _, idt_cenc_rand, _ = self.E(idt_random_image, class_vector)
+#             errG_idt_reg += torch.mean(torch.abs(source_c_rand - idt_cenc_rand))
+#             errG_ex += errG_idt_reg * self.lbd["idt_reg"] * (self.lbd["idt"]/self.lbd["cycle"])
         
-        errG_ex.backward()
-        self.optG.step()
+#         errG_ex.backward()
+#         self.optG.step()
         
-        errG += errG_ex
+#         errG += errG_ex
         
-        return [errG, errE_output]
+#         return [errG, errE_output]
     
-    def UnrolledUpdate(self):
-        for i in range(self.k):
+#     def UnrolledUpdate(self):
+#         for i in range(self.k):
 
-            # update D
-            errD = self.update_D()
-            if i==0:
-                paramD = []
-                for j in self.classes:
-                    paramD.append(self.D[j].state_dict())
-                errorD = errD
+#             # update D
+#             errD = self.update_D()
+#             if i==0:
+#                 paramD = []
+#                 for j in self.classes:
+#                     paramD.append(self.D[j].state_dict())
+#                 errorD = errD
 
-        # update G and E
-        errorG, errorE = self.update_GandE()
+#         # update G and E
+#         errorG, errorE = self.update_GandE()
 
-        for j in self.classes:
-            self.D[j].load_state_dict(paramD[j])
-        return [errorG, errorD, errorE]
+#         for j in self.classes:
+#             self.D[j].load_state_dict(paramD[j])
+#         return [errorG, errorD, errorE]
         
-    def train(self, source_image, label):
-        self.source_image = source_image
-        self.label = label
-        error = self.UnrolledUpdate()
-        return error
+#     def train(self, source_image, label):
+#         self.source_image = source_image
+#         self.label = label
+#         error = self.UnrolledUpdate()
+#         return error
     
-class SingleGAN_training_singleD():
+# class SingleGAN_training_singleD():
+#     def __init__(self, net, opt, criterion, lbd, unrolled_k, device, ref_label, ndim,
+#                  batch_size=64, encoded_feature="latent"):
+#         self.G, self.D, self.E = net[0].to(device), net[1].to(device), net[2].to(device)
+#         self.optG, self.optD, self.optE = opt[0], opt[1], opt[2]
+#         self.scheG, self.scheD, self.scheE = None, None, None
+#         self.criterion, self.criterion_class = criterion
+#         self.lbd = lbd
+#         self.k = unrolled_k
+#         self.device = device
+#         self.ref_label = ref_label
+#         self.n_batch = batch_size
+#         self.encoded_feature = encoded_feature
+#         self.ndim = ndim
+#         self.source_image = None
+#         self.target_image = None
+#         self.recon_image = None
+#         self.label = None
+#         self.c_rand = None
+#         self.enc_info = None
+#         self.target_cenc = None
+#         if lbd["hist"]>0:
+#             self.hi = histogram_imitation(device)
+    
+#     def opt_sche_initialization(self, lr=[0.0001, 0.0001, 0.0001]):
+#         lr_G, lr_D, lr_E = lr
+#         if self.optG==None:
+#             self.optG = optim.Adam(self.G.parameters(), lr=lr_G, betas=(0.5, 0.999))
+#         self.scheG = optim.lr_scheduler.ExponentialLR(self.optG, gamma=0.95)
+#         if self.optD==None:
+#             self.optD = optim.Adam(self.D.parameters(), lr=lr_D, betas=(0.5, 0.999))
+#         self.scheD = optim.lr_scheduler.ExponentialLR(self.optD, gamma=0.95)
+#         if self.optE==None:
+#             self.optE = optim.Adam(self.E.parameters(), lr=lr_E, betas=(0.5, 0.999))
+#         self.scheE = optim.lr_scheduler.ExponentialLR(self.optE, gamma=0.95)
+#         return
+        
+#     def G_transformation(self, target_label, source_image, encoder=False, ref_image=None):
+#         if encoder:
+#             class_vector = class_encode(target_label, self.device, self.ref_label)
+#             latent, mu, logvar = self.E(ref_image, class_vector)
+#             info = [latent, mu, logvar]
+#             if self.encoded_feature == "latent":
+#                 latent_vector = latent
+#             elif self.encoded_feature == "mu":
+#                 latent_vector = mu
+                
+#         else:
+#             latent_vector = torch.randn(source_image.shape[0], self.ndim).to(self.device)
+#             info = latent_vector
+            
+#         class_vector = class_encode(target_label, self.device, self.ref_label)
+#         class_vector = torch.cat([class_vector, latent_vector], 1)
+#         target_image = self.G(source_image, class_vector)
+        
+#         return target_image, info
+        
+#     def update_D(self):
+#         self.D.zero_grad()
+#         self.target_image, self.c_rand = self.G_transformation(self.label["target"], self.source_image, False)
+        
+#         errD = 0
+#         # real image
+#         output, output_class = self.D(self.source_image)
+#         errD_real = get_loss_D(output, 1., self.criterion, self.device)
+#         errD_class = get_domainloss_D(output_class, class_encode(self.label["source"], self.device, self.ref_label), self.criterion_class)
+#         errD += errD_real + errD_class*self.lbd["class"]
+
+#         # fake image
+#         output, output_class = self.D(self.target_image.detach())
+#         errD_fake = get_loss_D(output, 0., self.criterion, self.device)
+#         errD += errD_fake
+
+#         errD.backward()
+#         self.optD.step()
+#         return errD
+    
+#     def update_GandE(self):
+#         self.G.zero_grad()
+#         self.E.zero_grad()
+
+#         errG = 0
+#         errE = 0
+#         errE_output = 0
+
+#         ## ordinary SingleGAN loss
+#         recon_image, source_enc_info = self.G_transformation(self.label["source"], self.target_image, True, self.source_image)
+#         output, output_class = self.D(self.target_image)
+#         errG_dis = get_loss_D(output, 1., self.criterion, self.device)
+#         errG_class = get_domainloss_D(output_class, class_encode(self.label["target"], self.device, self.ref_label), self.criterion_class)
+#         errG_cycle = torch.mean(torch.abs(self.source_image - recon_image))
+#         errG += errG_dis + errG_class*self.lbd["class"] + errG_cycle*self.lbd["cycle"]
+#         errE_output += errG_cycle * self.lbd["cycle"]
+        
+#         ## multimodal transformation (KL): Conventional KL
+#         if self.lbd["KL"] > 0:
+#             _, mu, logvar = source_enc_info
+#             errE_KL = -0.5 * torch.sum(1 + logvar - mu**2 - logvar.exp_()) 
+#             errE += errE_KL*self.lbd["KL"]
+#             errE_output += errE_KL*self.lbd["KL"]
+            
+#         ## Identity loss under source style condition
+#         if self.lbd["idt"] > 0:
+#             identity_image, _ = self.G_transformation(self.label["source"], self.source_image, True, self.source_image)
+#             errG_idt = torch.mean(torch.abs(self.source_image - identity_image))
+#             errG += errG_idt*self.lbd["idt"]
+#             errE_output += errG_idt*self.lbd["idt"]
+            
+#         ## batch size KL
+#         if self.lbd["batch_KL"] > 0:
+#             _, mu, _ = source_enc_info
+#             var = torch.var(mu, dim=0)*self.n_batch/(self.n_batch-1)
+#             mean = torch.mean(mu, dim=0)
+#             errE_bKL = -0.5 * torch.sum(1 + torch.log(var) - mean**2 - var) 
+#             errE += errE_bKL*self.lbd["batch_KL"]
+#             errE_output += errE_bKL*self.lbd["batch_KL"]
+            
+#         ## correlative loss
+#             if self.lbd["corr_enc"] > 0:
+#                 errE_corr = corrcoef_loss(mu.T, self.device)
+#                 errE += errE_corr*self.lbd["corr_enc"]
+#                 errE_output += errE_corr*self.lbd["corr_enc"]
+                
+#         ## histgram imitation loss
+#             if self.lbd["hist"] > 0:
+#                 errE_hist = self.hi.loss(mu)
+#                 errE += errE_hist*self.lbd["hist"]
+#                 errE_output += errE_hist*self.lbd["hist"]
+                
+#         errG.backward(retain_graph=True)
+#         errE.backward(retain_graph=True)
+#         self.optG.step()
+#         self.optE.step()
+        
+#         ########################### update exclusively G ###########################
+#         self.G.zero_grad()
+#         self.E.zero_grad()
+        
+#         errG_ex = 0
+#         ## multimodal transformation (regression loss)
+#         class_vector = class_encode(self.label["target"], self.device, self.ref_label)
+#         _, target_cenc, _ = self.E(self.target_image, class_vector)
+#         errG_reg = torch.mean(torch.abs(self.c_rand - target_cenc))
+#         errG_ex += errG_reg * self.lbd["reg"]
+        
+#         ## multimodal transformation (regression loss for identity images)
+#         if self.lbd["idt_reg"]*self.lbd["idt"] > 0:
+#             errG_idt_reg = 0
+            
+#             ## random condition
+#             idt_random_image, source_c_rand = self.G_transformation(self.label["source"], self.source_image, False)
+#             class_vector = class_encode(self.label["source"], self.device, self.ref_label)
+#             _, idt_cenc_rand, _ = self.E(idt_random_image, class_vector)
+#             errG_idt_reg += torch.mean(torch.abs(source_c_rand - idt_cenc_rand))
+#             errG_ex += errG_idt_reg * self.lbd["idt_reg"] * (self.lbd["idt"]/self.lbd["cycle"])
+            
+#         errG_ex.backward()
+#         self.optG.step()
+        
+#         errG += errG_ex
+        
+#         return [errG, errE_output]
+    
+#     def UnrolledUpdate(self):
+#         for i in range(self.k):
+
+#             # update D
+#             errD = self.update_D()
+#             if i==0:
+#                 paramD = self.D.state_dict()
+#                 errorD = errD
+
+#         # update G
+#         errorG, errorE = self.update_GandE()
+
+#         self.D.load_state_dict(paramD)
+#         return [errorG, errorD, errorE]
+        
+#     def train(self, source_image, label):
+#         self.source_image = source_image
+#         self.label = label
+#         error = self.UnrolledUpdate()
+#         return error
+
+class SingleGAN_training():
     def __init__(self, net, opt, criterion, lbd, unrolled_k, device, ref_label, ndim,
-                 batch_size=64, encoded_feature="latent"):
-        self.G, self.D, self.E = net[0].to(device), net[1].to(device), net[2].to(device)
+                 classes, batch_size=64, encoded_feature="latent", singleD=False):
+        self.G, self.D, self.E = net[0], net[1], net[2]
         self.optG, self.optD, self.optE = opt[0], opt[1], opt[2]
         self.scheG, self.scheD, self.scheE = None, None, None
         self.criterion, self.criterion_class = criterion
@@ -232,6 +416,8 @@ class SingleGAN_training_singleD():
         self.n_batch = batch_size
         self.encoded_feature = encoded_feature
         self.ndim = ndim
+        self.classes = classes
+        self.singleD = singleD
         self.source_image = None
         self.target_image = None
         self.recon_image = None
@@ -247,9 +433,16 @@ class SingleGAN_training_singleD():
         if self.optG==None:
             self.optG = optim.Adam(self.G.parameters(), lr=lr_G, betas=(0.5, 0.999))
         self.scheG = optim.lr_scheduler.ExponentialLR(self.optG, gamma=0.95)
-        if self.optD==None:
-            self.optD = optim.Adam(self.D.parameters(), lr=lr_D, betas=(0.5, 0.999))
-        self.scheD = optim.lr_scheduler.ExponentialLR(self.optD, gamma=0.95)
+        if self.singleD:
+            if self.optD==None:
+                self.optD = optim.Adam(self.D.parameters(), lr=lr_D, betas=(0.5, 0.999))
+            self.scheD = optim.lr_scheduler.ExponentialLR(self.optD, gamma=0.95)
+        else:
+            self.optD = []
+            self.scheD = []
+            for i in self.classes:
+                self.optD.append(optim.Adam(self.D[i].parameters(), lr=lr_D, betas=(0.5, 0.999)))
+                self.scheD.append(optim.lr_scheduler.ExponentialLR(self.optD[i], gamma=0.95))
         if self.optE==None:
             self.optE = optim.Adam(self.E.parameters(), lr=lr_E, betas=(0.5, 0.999))
         self.scheE = optim.lr_scheduler.ExponentialLR(self.optE, gamma=0.95)
@@ -276,23 +469,55 @@ class SingleGAN_training_singleD():
         return target_image, info
         
     def update_D(self):
-        self.D.zero_grad()
         self.target_image, self.c_rand = self.G_transformation(self.label["target"], self.source_image, False)
         
-        errD = 0
-        # real image
-        output, output_class = self.D(self.source_image)
-        errD_real = get_loss_D(output, 1., self.criterion, self.device)
-        errD_class = get_domainloss_D(output_class, class_encode(self.label["source"], self.device, self.ref_label), self.criterion_class)
-        errD += errD_real + errD_class*self.lbd["class"]
+        all_errD = 0
+        if self.singleD:
+            errD = 0
+            self.D.zero_grad()
+            
+            # real image
+            output, output_class = self.D(self.source_image)
+            errD_real = get_loss_D(output, 1., self.criterion, self.device)
+            errD_class = get_domainloss_D(output_class, class_encode(self.label["source"], self.device, self.ref_label), self.criterion_class)
+            errD += errD_real + errD_class*self.lbd["class"]
 
-        # fake image
-        output, output_class = self.D(self.target_image.detach())
-        errD_fake = get_loss_D(output, 0., self.criterion, self.device)
-        errD += errD_fake
+            # fake image
+            output, output_class = self.D(self.target_image.detach())
+            errD_fake = get_loss_D(output, 0., self.criterion, self.device)
+            errD += errD_fake
+            
+            errD.backward()
+            self.optD.step()
+            all_errD += errD
+            
+        else:
+            for i in self.classes:
+                errD = 0
+                self.D[i].zero_grad()
+                
+                # real image
+                real_image = self.source_image[self.label["source"]==i]
+                if real_image.shape[0]!=0:
+                    output = self.D[i](real_image)
+                    errD_real = get_loss_D(output, 1., self.criterion, self.device)
+                else:
+                    errD_real = 0
+                errD += errD_real
 
-        errD.backward()
-        self.optD.step()
+                # fake image
+                fake_image = self.target_image[self.label["target"]==i].detach()
+                if fake_image.shape[0]!=0:
+                    output = self.D[i](fake_image)
+                    errD_fake = get_loss_D(output, 0., self.criterion, self.device)
+                else:
+                    errD_fake = 0
+                errD += errD_fake
+                
+                errD.backward()
+                self.optD[i].step()
+                all_errD += errD/len(self.classes)
+
         return errD
     
     def update_GandE(self):
@@ -305,11 +530,24 @@ class SingleGAN_training_singleD():
 
         ## ordinary SingleGAN loss
         recon_image, source_enc_info = self.G_transformation(self.label["source"], self.target_image, True, self.source_image)
-        output, output_class = self.D(self.target_image)
-        errG_dis = get_loss_D(output, 1., self.criterion, self.device)
-        errG_class = get_domainloss_D(output_class, class_encode(self.label["target"], self.device, self.ref_label), self.criterion_class)
+        
+        if self.singleD:
+            output, output_class = self.D(self.target_image)
+            errG_dis = get_loss_D(output, 1., self.criterion, self.device)
+            errG_class = get_domainloss_D(output_class, class_encode(self.label["target"], self.device, self.ref_label), self.criterion_class)
+            errG += errG_dis + errG_class*self.lbd["class"]
+        else:
+            for i in self.classes:
+                fake_image = self.target_image[self.label["target"]==i]
+                if fake_image.shape[0]!=0:
+                    output = self.D[i](fake_image)
+                    errG_dis = get_loss_D(output, 1., self.criterion, self.device)
+                else:
+                    errG_dis = 0
+                errG += errG_dis/len(self.classes)
+            
         errG_cycle = torch.mean(torch.abs(self.source_image - recon_image))
-        errG += errG_dis + errG_class*self.lbd["class"] + errG_cycle*self.lbd["cycle"]
+        errG += errG_cycle*self.lbd["cycle"]
         errE_output += errG_cycle * self.lbd["cycle"]
         
         ## multimodal transformation (KL): Conventional KL
@@ -357,6 +595,7 @@ class SingleGAN_training_singleD():
         self.E.zero_grad()
         
         errG_ex = 0
+        
         ## multimodal transformation (regression loss)
         class_vector = class_encode(self.label["target"], self.device, self.ref_label)
         _, target_cenc, _ = self.E(self.target_image, class_vector)
