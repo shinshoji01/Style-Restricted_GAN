@@ -376,10 +376,11 @@ class BasicBlock(nn.Module):
         return [out,d]
 
 class Encoder_original(nn.Module):
-    def __init__(self, nch_in, nch_out, nch=64, num_cls=3, norm_type="instance", num_con=2):
+    def __init__(self, nch_in, nch_out, nch=64, num_cls=3, norm_type="instance", num_con=2, device="cpu"):
         super(Encoder_original, self).__init__()
         _, c_norm_layer = get_norm_layer(layer_type=norm_type, num_con=num_con)
         self.num_cls = num_cls
+        self.device = device
 
         self.first_layer = nn.Conv2d(nch_in*1, nch, kernel_size=7, stride=2, padding=1, bias=True)
         
@@ -396,7 +397,7 @@ class Encoder_original(nn.Module):
         
     def reparametrize(self, mu, logvar):
         std = logvar.mul(0.5).exp_()
-        eps = torch.cuda.FloatTensor(std.size()).normal_()
+        eps = torch.FloatTensor(std.size()).normal_().to(self.device)
         eps = Variable(eps)
         return eps.mul(std).add_(mu)
         
@@ -436,10 +437,11 @@ class BasicBlock_classification(nn.Module):
         return out
     
 class Encoder(nn.Module):
-    def __init__(self, nch_in, nch_out, nch=64, num_cls=3, norm_type="instance", num_con=2):
+    def __init__(self, nch_in, nch_out, nch=64, num_cls=3, norm_type="instance", num_con=2, device="cpu"):
         super(Encoder, self).__init__()
         norm_layer, c_norm_layer = get_norm_layer(layer_type=norm_type, num_con=num_con)
         self.num_cls = num_cls
+        self.device = device
         self.first_layer = nn.Conv2d(nch_in*1, nch, kernel_size=7, stride=2, padding=1, bias=True)
         
         cnn_layers = []
@@ -456,7 +458,7 @@ class Encoder(nn.Module):
  
     def reparametrize(self, mu, logvar):
         std = logvar.mul(0.5).exp_()
-        eps = torch.cuda.FloatTensor(std.size()).normal_()
+        eps = torch.FloatTensor(std.size()).normal_().to(self.device)
         eps = Variable(eps)
         return eps.mul(std).add_(mu)
     

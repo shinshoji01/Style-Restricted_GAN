@@ -10,16 +10,94 @@ import pickle
 from prdc import compute_prdc
 
 def cuda2numpy(x):
+    """
+    convert cuda(cpu) tensor into ndarray
+
+    ------------
+    Parameters
+    ------------
+
+    x : torch.Tensor
+        either cuda or cpu tensor
+
+    ------------
+    Returns
+    ------------
+
+    y : ndarray
+        numpy version of the input tensor
+
+    ------------
+
+    """
     return x.detach().to("cpu").numpy()
 
 def cuda2cpu(x):
+    """
+    convert cuda tensor into cpu tensor
+
+    ------------
+    Parameters
+    ------------
+
+    x : torch.Tensor
+        cuda tensor
+
+    ------------
+    Returns
+    ------------
+
+    y : torch.Tensor
+        cpu tensor
+
+    ------------
+
+    """
     return x.detach().to("cpu")
 
 def pickle_save(data, path):
+    """
+    save data in a form of pickle
+
+    ------------
+    Parameters
+    ------------
+
+    data : anything
+    
+    path : str
+        path where you save data
+
+    ------------
+    Returns
+    ------------
+
+    ------------
+
+    """
     with open(path, 'wb') as f:
         pickle.dump(data, f)
         
 def pickle_load(path):
+    """
+    load data with a pickle form
+
+    ------------
+    Parameters
+    ------------
+
+    path : str
+        path where your data is located
+
+    ------------
+    Returns
+    ------------
+    
+    data : anything
+
+    ------------
+
+    """
     with open(path, mode='rb') as f:
         data = pickle.load(f)
     return data
@@ -35,6 +113,26 @@ def min_max(x, axis=None, mean0=False, get_param=False):
     return result
 
 class ToPIL(object):
+    """
+    convert torch.Tensor into PIL image
+
+    ------------
+    Parameters
+    ------------
+
+    img : torch.Tensor, shape=(sample_num, channel, length, width)
+        either cuda or cpu tensor
+        
+    ------------
+    Returns
+    ------------
+
+    image_list : PIL image
+        PIL image of the input tensor
+
+    ------------
+
+    """
     def __init__(self):
         pass
 
@@ -53,15 +151,32 @@ class MinMax(object):
     def __repr__(self):
         return self.__class__.__name__
 
-# def standardize_torch(x):
-#     xmean = torch.mean(x, dim=(1,2,3), keepdim=True)
-#     xstd = torch.std(x, dim=(1,2,3), keepdim=True)
-#     new_x = (x-xmean)/xstd
-#     return new_x 
-
 def image_from_output(output):
+    """
+    convert torch.Tensor into PIL image
+
+    ------------
+    Parameters
+    ------------
+
+    output : torch.Tensor, shape=(sample_num, channel, length, width)
+        either cuda or cpu tensor
+        
+    ------------
+    Returns
+    ------------
+
+    image_list : list
+        list includes PIL images
+
+    ------------
+
+    """
+    if len(output.shape)==3:
+        output = output.unsqueeze(0)
+        
     image_list = []
-    output = output.detach().to("cpu").numpy()
+    output = cuda2numpy(output)
     for i in range(output.shape[0]):
         a = output[i]
         a = np.tile(np.transpose(a, axes=(1,2,0)), (1,1,int(3/a.shape[0])))
@@ -84,17 +199,105 @@ def weights_init(m):
         m.weight.data.normal_(0.0, 0.02)
         m.bias.data.fill_(0)
         
-def class_encode(label, device, ref_class, source_label=None):
+def class_encode(label, device, ref_class):
+    """
+    get the class label of each sample referring to the reference label which is usually an one-hot vector
+
+    ------------
+    Parameters
+    ------------
+
+    label : torch.Tensor, shape=(sample_num)
+        the class label of each sample
+        
+    device : str
+        either "cuda" or "cpu"
+        
+    ref_class : np.array, shape=(class_num, dim)
+        the reference label: default is the one-hot vector
+    
+        
+    ------------
+    Returns
+    ------------
+
+    class_label : torch.Tensor, shape=(sample_num, dim)
+        the class label of each sample referring to the reference label
+
+    ------------
+
+    """
     class_label = torch.tensor(ref_class, dtype=torch.float32)[label].view(-1, ref_class.shape[1]).to(device)
     return class_label
 
-def load_classifier(net, classifier_path):
-    model = torch.load(classifier_path)
+def load_classifier(net, classifier_path, device):
+    """
+    put the pretrained parameters of the classifier into the encoder
+
+    ------------
+    Parameters
+    ------------
+
+    net : nn.Module
+        the encoder used in either SingleGAN or Style-Restricted GAN
+        
+    classifier_path : str
+        path where your pretrained classifier is located
+        
+    device : str
+        either "cuda" or "cpu"
+        
+    ------------
+    Returns
+    ------------
+
+    net : nn.Module
+        the encoder with pretrained parameters
+
+    ------------
+
+    """
+    model = torch.load(classifier_path, map_location=device)
     print(net.load_state_dict(model, strict=False))
     net.load_state_dict(model, strict=False)
     return net
 
 def get_target(label, classes, to_tensor=False, to_cuda=False, whole=False, shuffle=True):
+    """
+    get the possible target label referring to the source label
+
+    ------------
+    Parameters
+    ------------
+
+    label : torch.Tensor, shape=(sample_num)
+        the class label of each sample
+        
+    classes : tubple, shape=(class_num)
+        class label
+        
+    to_tensor : bool
+        whether the output is tranformed into a tensor form or not
+        
+    to_cuda : bool
+        whether the output is tranformed into a cuda form or not
+        
+    whole : bool
+        whether you're gonna get whole possible target labels or not
+        
+    shuffle : bool
+        whether the target labels are sorted at random or not
+        
+    ------------
+    Returns
+    ------------
+
+    class_label : np.array or torch.Tensor, shape=(sample_num, class_num-1)
+        the possible target labels
+
+    ------------
+
+    """
     try:
         label = label.to("cpu").detach().numpy()
     except AttributeError:
@@ -108,7 +311,7 @@ def get_target(label, classes, to_tensor=False, to_cuda=False, whole=False, shuf
             np.random.shuffle(target[i,:])
     if to_tensor:
         target = torch.Tensor(target)
-    if to_cuda:
+    if to_tensor and to_cuda:
         target = torch.Tensor(target).to("cuda")
     return target
 

@@ -18,6 +18,44 @@ def get_class_label(n_class_type):
     return cl
 
 class FaceDataset(torch.utils.data.Dataset):
+    """
+    Dataset fuction for CelebA dataset
+
+    ------------
+    Parameters
+    ------------
+    
+    root : str
+        the path of the root directory of the dataset
+        
+    label_root : str
+        the path of the directory of the label folder
+    
+    transform : torchvision.transforms
+        the transformer for preprocessing
+    
+    dataset_label : dir
+        directory includes the label you want to include, delete, or, use as a class
+    
+    classes : tubple, shape=(class_num)
+        class label
+        
+    data_type : str
+        "train", "val", or "test"
+    
+    train_num : int
+        the number of train data
+        
+    val_num : int
+        the number of val data
+        
+    test_num : int
+        the number of test data
+        
+    ------------
+
+    """
+    try:
     def __init__(self, root, label_root, transform, dataset_label, classes, data_type="train", train_num=2000, val_num=500, test_num=500):
         
         self.transform = transform
