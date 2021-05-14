@@ -83,6 +83,10 @@ git lfs install
 git lfs fetch --all
 git lfs pull
 ```
+---
+## Coming soon
+Some are not explained which include:
+- explanations of some functions and models.
 
 ---
 ## Contact
