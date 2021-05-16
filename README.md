@@ -91,3 +91,8 @@ Some are not explained which include:
 ---
 ## Contact
 Feel free to contact me if you have any questions (<s-inoue-tgz@eagle.sophia.ac.jp>).
+
+
+---
+## Notice
+This work has been submitted to the IEEE Access for possible publication. Copyright may be transferred without notice, after which this version may no longer be accessible.
