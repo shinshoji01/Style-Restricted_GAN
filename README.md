@@ -1,5 +1,5 @@
 # Style-Restricted Generative Adversarial Networks
-This repository is to introduce the implementation of our paper: [Style-Restricted GAN: Multi-ModalTranslation with Style Restriction Using Generative Adversarial Networks]().
+This repository is to introduce the implementation of our paper: [Style-Restricted GAN: Multi-ModalTranslation with Style Restriction Using Generative Adversarial Networks](https://arxiv.org/abs/2105.07621).
 
 ---
 ## Introduction
