@@ -6,6 +6,9 @@ from PIL import Image
 import matplotlib.pyplot as plt
 import itertools
 import pickle
+import shutil
+import os
+import glob
 
 from prdc import compute_prdc
 
@@ -349,6 +352,25 @@ def plot_correlation_matrix(cm, save=False, save_dir="", save_name=""):
         plt.savefig(fname=save_path, format="png", bbox_inches="tight")
     plt.show()
     return
+
+def save_gif(data_list, gif_path, title, save_dir="contempolary_images/", fig_size=(8,8), font_title=24, duration=100):
+    shutil.rmtree(save_dir, ignore_errors=True)
+    os.makedirs(save_dir, exist_ok=True)
+    for i in range(len(data_list)):
+        fig = plt.figure(figsize=fig_size)
+        plt.cla()
+        ax = fig.add_subplot(1,1,1)
+        ax.imshow(data_list[i])
+        plt.title(title, fontsize=font_title)
+        save_path = save_dir + f"{str(i).zfill(3)}.png"
+        plt.tick_params(labelbottom=False, labelleft=False, labelright=False, labeltop=False)
+        plt.savefig(save_path, dpi=64, facecolor = "lightgray", bbox_inches="tight", format="png")
+        plt.close()
+        plt.axis('off')
+    files = sorted(glob.glob(save_dir + '*.png'))
+    images = list(map(lambda file: Image.open(file), files))
+    images[0].save(gif_path, save_all=True, append_images=images[1:], duration=duration, loop=0)
+    shutil.rmtree(save_dir, ignore_errors=True)
 
 ############ https://www.kaggle.com/grfiv4/plot-a-confusion-matrix #############
 def plot_confusion_matrix(cm,
