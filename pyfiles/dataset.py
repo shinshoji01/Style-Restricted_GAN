@@ -55,7 +55,6 @@ class FaceDataset(torch.utils.data.Dataset):
     ------------
 
     """
-    try:
     def __init__(self, root, label_root, transform, dataset_label, classes, data_type="train", train_num=2000, val_num=500, test_num=500):
         
         self.transform = transform
