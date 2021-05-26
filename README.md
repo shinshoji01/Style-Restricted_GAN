@@ -19,6 +19,8 @@ We would like to share our results first to briefly understand our objective. It
 
 <img src="./data/images/result_restriction_female.png" width="800">
 
+https://user-images.githubusercontent.com/28431328/119615142-09661e00-be3a-11eb-9115-655bbc16a4e3.mp4
+
 ---
 ## Notebooks
 - `01-test_Conventional_SingleGAN.ipynb`
