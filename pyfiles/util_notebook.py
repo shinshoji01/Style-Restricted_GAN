@@ -26,6 +26,53 @@ def get_adjustable_parameters(notebook_no=1):
     return pd.DataFrame(np.array(models), columns=columns)
 
 class SingleGAN_training():
+    """
+    This class contains some useful functions for the model SingleGAN
+
+    ------------
+    Attributes
+    ------------
+
+    net : list of nn.Module
+        it contains the models: a generator, a discriminator, and an encoder, in this order.
+        
+    opt : list of torch.optim
+        it contains the optimizers of each models. If the optimizer is none, the ordinary one will be used.
+        
+    criterion : list of torch.nn.modules.loss
+        it contains the evaluation methods: for the models and for discriminator's class output, in this order
+        
+    lbd : dict
+        lbd contains the values which have to do with the relationship among losses
+        
+    unrolled_k : float
+        k value for UnrolledGAN
+        
+    device : str
+        choices: "cuda" or "cpu"
+        
+    ref_label : np.array, shape=(class_num, dim)
+        the reference label: default is the one-hot vector
+        
+    ndim : int
+        dimension of the latent code for style
+        
+    classes : tubple, shape=(class_num)
+        class label
+        
+    batch_size : int
+        the size of batch
+    
+    encoded_feature : str
+        the encoded features used for regression loss
+        choices: "latent" or "mu"
+    
+    singleD : bool
+        whether the discriminator is based on SingleGAN or StarGAN. singleD means the discriminator used in StarGAN
+        
+    ------------
+
+    """
     def __init__(self, net, opt, criterion, lbd, unrolled_k, device, ref_label, ndim,
                  classes, batch_size=64, encoded_feature="latent", singleD=False):
         self.G, self.D, self.E = net[0], net[1], net[2]
@@ -52,6 +99,19 @@ class SingleGAN_training():
             self.hi = histogram_imitation(device)
     
     def opt_sche_initialization(self, lr=[0.0001, 0.0001, 0.0001]):
+        """
+        initialize the schedulers and the optimizers
+
+        ------------
+        Parameters
+        ------------
+
+        list : list of float
+            it contains the basic learning rate for the models: G, D, E
+
+        ------------
+
+        """
         lr_G, lr_D, lr_E = lr
         if self.optG==None:
             self.optG = optim.Adam(self.G.parameters(), lr=lr_G, betas=(0.5, 0.999))
@@ -72,6 +132,40 @@ class SingleGAN_training():
         return
         
     def G_transformation(self, target_label, source_image, encoder=False, ref_image=None):
+        """
+        This transfroms the input data into the target data using G
+
+        ------------
+        Parameters
+        ------------
+
+        target_label : torch.Tensor, shape=(batch_size)
+            tensor of target label
+            
+        source_image : torch.Tensor, shape=(batch_size, channel, length, width)
+            source image
+            
+        encoder : bool
+            whether the style vector is encoder features or randomized vectors
+            
+        ref_image : torch.Tensor, shape=(batch_size, channel, length, width)
+            the images used for extraction of encoded features
+            
+        ------------
+        Returns
+        ------------
+        
+        target_image : torch.Tensor, shape=(batch_size, channel, length, width)
+            target image
+            
+        info : list of torch.Tensor or torch.Tensor
+            if encoder is True, it will be list.
+            list contains the latent codes, mu of them and std of them, in this order.
+            In contrast, torch.Tensor indicates the latent codes
+
+        ------------
+
+        """
         if encoder:
             class_vector = class_encode(target_label, self.device, self.ref_label)
             latent, mu, logvar = self.E(ref_image, class_vector)
@@ -92,6 +186,19 @@ class SingleGAN_training():
         return target_image, info
         
     def update_D(self):
+        """
+        This updates the parameters of D
+
+        ------------
+        Returns
+        ------------
+        
+        errD : numpy.ndarray, shape=()
+            error of D
+            
+        ------------
+
+        """
         self.target_image, self.c_rand = self.G_transformation(self.label["target"], self.source_image, False)
         
         all_errD = 0
@@ -144,6 +251,22 @@ class SingleGAN_training():
         return errD
     
     def update_GandE(self):
+        """
+        This updates the parameters of G and E
+
+        ------------
+        Returns
+        ------------
+        
+        errG : numpy.ndarray, shape=()
+            error of G
+        
+        errE_output : numpy.ndarray, shape=()
+            error of E
+            
+        ------------
+
+        """
         self.G.zero_grad()
         self.E.zero_grad()
 
@@ -244,6 +367,25 @@ class SingleGAN_training():
         return [errG, errE_output]
     
     def UnrolledUpdate(self):
+        """
+        This updates the parameters of the models using UnrolledGAN's algorithm
+
+        ------------
+        Returns
+        ------------
+        
+        errorG : numpy.ndarray, shape=()
+            error of G
+        
+        errorD : numpy.ndarray, shape=()
+            error of D
+            
+        errorE : numpy.ndarray, shape=()
+            error of E
+            
+        ------------
+
+        """
         for i in range(self.k):
 
             # update D
@@ -275,8 +417,55 @@ class SingleGAN_training():
         return error
 
 class SRGAN_training():
+    """
+    This class contains some useful functions for the model Style-Restricted GAN (SRGAN)
+
+    ------------
+    Attributes
+    ------------
+
+    net : list of nn.Module
+        it contains the models: a generator, a discriminator, and an encoder, in this order.
+        
+    opt : list of torch.optim
+        it contains the optimizers of each models. If the optimizer is none, the ordinary one will be used.
+        
+    criterion : list of torch.nn.modules.loss
+        it contains the evaluation methods: for the models and for discriminator's class output, in this order
+        
+    lbd : dict
+        lbd contains the values which have to do with the relationship among losses
+        
+    unrolled_k : float
+        k value for UnrolledGAN
+        
+    device : str
+        choices: "cuda" or "cpu"
+        
+    ref_label : np.array, shape=(class_num, dim)
+        the reference label: default is the one-hot vector
+        
+    ndim : int
+        dimension of the latent code for style
+        
+    classes : tubple, shape=(class_num)
+        class label
+        
+    batch_size : int
+        the size of batch
+    
+    encoded_feature : str
+        the encoded features used for regression loss
+        choices: "latent" or "mu"
+    
+    singleD : bool
+        whether the discriminator is based on SingleGAN or StarGAN. singleD means the discriminator used in StarGAN
+        
+    ------------
+
+    """
     def __init__(self, net, opt, criterion, lbd, unrolled_k, device, ref_label,
-                 batch_size=64, encoded_feature="latent", styleINdataset=True, ndim=8):
+                 batch_size=64, encoded_feature="latent", ndim=8):
         self.G, self.D, self.E = net[0].to(device), net[1].to(device), net[2].to(device)
         self.optG, self.optD, self.optE = opt[0], opt[1], opt[2]
         self.scheG, self.scheD, self.scheE = None, None, None
@@ -287,7 +476,6 @@ class SRGAN_training():
         self.ref_label = ref_label
         self.n_batch = batch_size
         self.encoded_feature = encoded_feature
-        self.styleINdataset = styleINdataset
         self.ndim = ndim
         self.source_image = None
         self.target_image = None
@@ -333,11 +521,7 @@ class SRGAN_training():
         
     def update_D(self):
         self.D.zero_grad()
-        if self.styleINdataset:
-            c, random = self.label["index"]
-            self.target_image, [_,self.c_rand,_,_,_] = self.G_transformation(self.label["target"], self.source_image, True, self.source_image[c][random])
-        else:
-            self.target_image, self.c_rand = self.G_transformation(self.label["target"], self.source_image, False)
+        self.target_image, self.c_rand = self.G_transformation(self.label["target"], self.source_image, False)
         
         errD = 0
         # real image
@@ -462,7 +646,7 @@ class SRGAN_training():
 
 
 
-def get_output_and_plot(sg, dataset, index, class_info, random_sample_num=5, styleINdataset=False, device="cuda"):
+def get_output_and_plot(sg, dataset, index, class_info, random_sample_num=5, device="cuda"):
     classes, label_discription = class_info
     data = dataset[index]
     fixed_source_image = data[0].view(1, 3, 128, 128).to(device)
@@ -477,11 +661,7 @@ def get_output_and_plot(sg, dataset, index, class_info, random_sample_num=5, sty
     fixed_target_image = cuda2cpu(image)
     
     # get target image by several latent codes
-    if styleINdataset:
-        ref_image = get_random_dataset(dataset, random_sample_num).to(device)
-        image, _ = sg.G_transformation(target_label.repeat(1,random_sample_num), fixed_source_image.repeat(random_sample_num,1,1,1), True, ref_image)
-    else:
-        image, _ = sg.G_transformation(target_label.repeat(1,random_sample_num), fixed_source_image.repeat(random_sample_num,1,1,1), False)
+    image, _ = sg.G_transformation(target_label.repeat(1,random_sample_num), fixed_source_image.repeat(random_sample_num,1,1,1), False)
     target_image_list = cuda2cpu(image)
     
     # get reconstructed image under source condition
@@ -497,19 +677,11 @@ def get_output_and_plot(sg, dataset, index, class_info, random_sample_num=5, sty
     trans_image_list = cuda2cpu(image)
     
     # get reconstructed image by several latent code
-    if styleINdataset:
-        ref_image = get_random_dataset(dataset, random_sample_num).to(device)
-        image, _ = sg.G_transformation(fixed_source_label.repeat(random_sample_num), target_image_list[0:1].repeat(random_sample_num,1,1,1).to(device), True, ref_image)
-    else:
-        image, _ = sg.G_transformation(fixed_source_label.repeat(random_sample_num), target_image_list[0:1].repeat(random_sample_num,1,1,1).to(device), False)
+    image, _ = sg.G_transformation(fixed_source_label.repeat(random_sample_num), target_image_list[0:1].repeat(random_sample_num,1,1,1).to(device), False)
     recon_image_list = cuda2cpu(image)
     
     # get idt image by several latent code
-    if styleINdataset:
-        ref_image = get_random_dataset(dataset, random_sample_num).to(device)
-        image, _ = sg.G_transformation(fixed_source_label.repeat(random_sample_num), fixed_source_image.repeat(random_sample_num,1,1,1), True, ref_image)
-    else:
-        image, _ = sg.G_transformation(fixed_source_label.repeat(random_sample_num), fixed_source_image.repeat(random_sample_num,1,1,1), False)
+    image, _ = sg.G_transformation(fixed_source_label.repeat(random_sample_num), fixed_source_image.repeat(random_sample_num,1,1,1), False)
     idt_image_list = cuda2cpu(image)
     
     length = random_sample_num + 1
