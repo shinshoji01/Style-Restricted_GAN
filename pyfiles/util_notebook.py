@@ -445,12 +445,6 @@ class SRGAN_training():
     ref_label : np.array, shape=(class_num, dim)
         the reference label: default is the one-hot vector
         
-    ndim : int
-        dimension of the latent code for style
-        
-    classes : tubple, shape=(class_num)
-        class label
-        
     batch_size : int
         the size of batch
     
@@ -458,8 +452,8 @@ class SRGAN_training():
         the encoded features used for regression loss
         choices: "latent" or "mu"
     
-    singleD : bool
-        whether the discriminator is based on SingleGAN or StarGAN. singleD means the discriminator used in StarGAN
+    ndim : int
+        dimension of the latent code for style
         
     ------------
 
@@ -488,6 +482,19 @@ class SRGAN_training():
             self.hi = histogram_imitation(device)
     
     def opt_sche_initialization(self, lr=[0.0001, 0.0001, 0.0001]):
+        """
+        initialize the schedulers and the optimizers
+
+        ------------
+        Parameters
+        ------------
+
+        list : list of float
+            it contains the basic learning rate for the models: G, D, E
+
+        ------------
+
+        """
         lr_G, lr_D, lr_E = lr
         if self.optG==None:
             self.optG = optim.Adam(self.G.parameters(), lr=lr_G, betas=(0.5, 0.999))
@@ -501,6 +508,40 @@ class SRGAN_training():
         return
         
     def G_transformation(self, target_label, source_image, encoder=False, ref_image=None):
+        """
+        This transfroms the input data into the target data using G
+
+        ------------
+        Parameters
+        ------------
+
+        target_label : torch.Tensor, shape=(batch_size)
+            tensor of target label
+            
+        source_image : torch.Tensor, shape=(batch_size, channel, length, width)
+            source image
+            
+        encoder : bool
+            whether the style vector is encoder features or randomized vectors
+            
+        ref_image : torch.Tensor, shape=(batch_size, channel, length, width)
+            the images used for extraction of encoded features
+            
+        ------------
+        Returns
+        ------------
+        
+        target_image : torch.Tensor, shape=(batch_size, channel, length, width)
+            target image
+            
+        info : list of torch.Tensor or torch.Tensor
+            if encoder is True, it will be list.
+            list contains the latent codes, mu of them and std of them, in this order.
+            In contrast, torch.Tensor indicates the latent codes
+
+        ------------
+
+        """
         if encoder:
             latent, mu, logvar, class_output, attention = self.E(ref_image)
             info = [latent, mu, logvar, class_output, attention]
@@ -520,6 +561,19 @@ class SRGAN_training():
         return target_image, info
         
     def update_D(self):
+        """
+        This updates the parameters of D
+
+        ------------
+        Returns
+        ------------
+        
+        errD : numpy.ndarray, shape=()
+            error of D
+            
+        ------------
+
+        """
         self.D.zero_grad()
         self.target_image, self.c_rand = self.G_transformation(self.label["target"], self.source_image, False)
         
@@ -540,6 +594,22 @@ class SRGAN_training():
         return errD
     
     def update_GandE(self):
+        """
+        This updates the parameters of G and E
+
+        ------------
+        Returns
+        ------------
+        
+        errG : numpy.ndarray, shape=()
+            error of G
+        
+        errE_output : numpy.ndarray, shape=()
+            error of E
+            
+        ------------
+
+        """
         self.G.zero_grad()
         self.E.zero_grad()
 
@@ -624,6 +694,25 @@ class SRGAN_training():
         return [errG, errE_output]
     
     def UnrolledUpdate(self):
+        """
+        This updates the parameters of the models using UnrolledGAN's algorithm
+
+        ------------
+        Returns
+        ------------
+        
+        errorG : numpy.ndarray, shape=()
+            error of G
+        
+        errorD : numpy.ndarray, shape=()
+            error of D
+            
+        errorE : numpy.ndarray, shape=()
+            error of E
+            
+        ------------
+
+        """
         for i in range(self.k):
 
             # update D
@@ -647,6 +736,31 @@ class SRGAN_training():
 
 
 def get_output_and_plot(sg, dataset, index, class_info, random_sample_num=5, device="cuda"):
+    """
+    get output from dataset and visualize it
+
+    ------------
+    Parameters
+    ------------
+
+    sg : class
+        choices: SingleGAN_training, SRGAN_training
+
+    dataset : torch.utils.data.Dataset
+        dataset which is used in the inference task
+        
+    index : int
+        the index which indicates data location in the dataset
+
+    class_info : list
+        it contains the tuple "classes" and the dir "label_discription"
+        
+    random_sample_num : int
+        the number of samples that are visualized
+
+    ------------
+
+    """
     classes, label_discription = class_info
     data = dataset[index]
     fixed_source_image = data[0].view(1, 3, 128, 128).to(device)
@@ -746,18 +860,17 @@ def get_samples(netG, netE, dataset, index, latent=None, classes=tuple(range(4))
     """
     get samples of the outputs in multimodal-SingleGAN, which is diversified the output with the latent code
     
+    ------------
     Parameters
     ------------
+    
     netG : PyTorch model
         the generator of the SingleGAN
         
-    dataset : Dataset in PyTorch
+    dataset : torch.utils.data.Dataset
         dataset which is used in the inference task
         
     index : int
-        the index which indicates data location in the dataset
-        
-    target_label : ndarray
         the index which indicates data location in the dataset
         
     latent : None or ndarray, shape=(sample_num, latent_dim)
@@ -768,21 +881,11 @@ def get_samples(netG, netE, dataset, index, latent=None, classes=tuple(range(4))
         
     ref_label : ndarray
         continuous class label (relational label or moving label)
-        
-    label_type : 'target_only', 'concatenation', or 'substruction'
-        the target label for transformation
-        'target_only' -> only target label
-        'concatenation' -> concatenation of the target label and the source label
-        'substruction' -> substruction of the target label and the source label
-        
-    transformation_type : 'normal', 'edge', or 'edge_emphasis'
-        the represenation which is used for the input of the E
-        
-    ndim : int 
-        the dimension of the latent code
     
+    ------------
     Returns
-    ----------
+    ------------
+    
     data : dic
         dictionary of whole data
         
